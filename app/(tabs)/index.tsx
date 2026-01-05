@@ -1,118 +1,98 @@
+import { useAuth } from '@/components/AuthContext'; // Import Auth
+import LoginScreen from '@/components/LoginScreen'; // Import Login
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { medusa } from '@/lib/medusa';
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Platform, StyleSheet } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 
 export default function HomeScreen() {
+  const { customer, loading: authLoading, logout } = useAuth();
+  
   const [products, setProducts] = useState<any[]>([]);
+  const [region, setRegion] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchProducts() {
-      try {
-        console.log("Attempting to fetch products...");
-        
-        // 1. Fetch products from Medusa
-        // We removed the crashing 'clientOptions' log
-        const { products } = await medusa.store.product.list({
-          fields: "id,title,thumbnail,variants.prices", 
-          limit: 10,
-        });
+  // 1. IF NOT LOGGED IN, SHOW LOGIN SCREEN
+  if (authLoading) return <ActivityIndicator style={{flex:1}} />;
+  if (!customer) return <LoginScreen />;
 
-        console.log("Success! Products found:", products.length);
-        setProducts(products);
-      } catch (error: any) {
-        console.error("Fetch Error:", error);
+  // 2. IF LOGGED IN, FETCH INDIA STORE
+  useEffect(() => {
+    async function initIndiaStore() {
+      try {
+        // A. Find "India" Region
+        const { regions } = await medusa.store.region.list();
+        const india = regions.find(r => r.currency_code === 'inr');
         
-        let msg = "Check your backend console.";
-        if (error.message?.includes("Network request failed")) {
-             msg = Platform.OS === 'android' 
-             ? "Android cannot connect to localhost. Ensure lib/medusa.ts uses 'http://10.0.2.2:9000'"
-             : "Ensure your backend is running on port 9000.";
+        if (!india) {
+          Alert.alert("Config Error", "Please create an 'India' region in Admin Panel");
+          return;
         }
-        Alert.alert("Connection Failed", msg);
+        setRegion(india);
+
+        // B. Fetch Products FOR INDIA (This ensures INR prices)
+        const { products } = await medusa.store.product.list({
+          region_id: india.id, 
+          fields: "id,title,thumbnail,variants.prices,variants.id",
+        });
+        setProducts(products);
+
+      } catch (e) {
+        console.error(e);
       } finally {
         setLoading(false);
       }
     }
+    initIndiaStore();
+  }, [customer]);
 
-    fetchProducts();
-  }, []);
-
-  if (loading) {
-    return (
-      <ThemedView style={styles.center}>
-        <ActivityIndicator size="large" color="#fff" />
-        <ThemedText style={{marginTop: 10}}>Connecting to Medusa...</ThemedText>
-      </ThemedView>
-    );
-  }
+  // Helper: Format Price to ₹
+  const getINRPrice = (variant: any) => {
+    const price = variant?.prices?.find((p: any) => p.currency_code === 'inr');
+    return price 
+      ? `₹${(price.amount / 100).toFixed(2)}` 
+      : "Price N/A (Check Admin)";
+  };
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.header}>Latest Drops</ThemedText>
+      {/* Header */}
+      <ThemedView style={styles.header}>
+        <ThemedText type="subtitle">Hello, {customer.first_name}</ThemedText>
+        <TouchableOpacity onPress={logout}>
+           <ThemedText style={{color: 'red'}}>Log Out</ThemedText>
+        </TouchableOpacity>
+      </ThemedView>
+
+      <ThemedText type="title" style={{padding: 16}}>🇮🇳 India Store</ThemedText>
       
-      <FlatList
-        data={products}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ gap: 16, padding: 16 }}
-        renderItem={({ item }) => (
-          <ThemedView style={styles.card}>
-            <Image 
-              source={{ uri: item.thumbnail }} 
-              style={styles.image} 
-              contentFit="cover"
-              transition={1000}
-            />
-            <ThemedView style={styles.textContainer}>
-                <ThemedText type="subtitle">{item.title}</ThemedText>
-                <ThemedText style={{color: '#aaa'}}>
-                {item.variants?.[0]?.prices?.[0]?.amount 
-                    ? `$${item.variants[0].prices[0].amount / 100}` 
-                    : "Price N/A"}
+      {loading ? <ActivityIndicator /> : (
+        <FlatList
+          data={products}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ padding: 16 }}
+          renderItem={({ item }) => (
+            <ThemedView style={styles.card}>
+              <Image source={{ uri: item.thumbnail }} style={styles.image} />
+              <ThemedView style={{padding: 10}}>
+                <ThemedText type="defaultSemiBold">{item.title}</ThemedText>
+                <ThemedText style={{color: 'green', fontSize: 16}}>
+                  {getINRPrice(item.variants[0])}
                 </ThemedText>
+              </ThemedView>
             </ThemedView>
-          </ThemedView>
-        )}
-        ListEmptyComponent={
-          <ThemedText style={{textAlign: 'center', marginTop: 20}}>
-            No products found.{"\n"}
-            Check your Admin Dashboard to ensure products are Published!
-          </ThemedText>
-        }
-      />
+          )}
+        />
+      )}
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 50,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    paddingHorizontal: 16,
-    marginBottom: 10,
-  },
-  card: {
-    backgroundColor: '#1C1C1E', 
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  image: {
-    width: '100%',
-    height: 250,
-  },
-  textContainer: {
-    padding: 12,
-  }
+  container: { flex: 1, paddingTop: 50 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#eee' },
+  card: { marginBottom: 15, backgroundColor: '#fff', borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#eee' },
+  image: { width: '100%', height: 200 }
 });
