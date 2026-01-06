@@ -1,5 +1,5 @@
-import { useAuth } from '@/components/AuthContext'; // Import Auth
-import LoginScreen from '@/components/LoginScreen'; // Import Login
+import { useAuth } from '@/components/AuthContext';
+import LoginScreen from '@/components/LoginScreen';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { medusa } from '@/lib/medusa';
@@ -11,77 +11,65 @@ export default function HomeScreen() {
   const { customer, loading: authLoading, logout } = useAuth();
   
   const [products, setProducts] = useState<any[]>([]);
-  const [region, setRegion] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // 1. IF NOT LOGGED IN, SHOW LOGIN SCREEN
+  // 1. Wait for Auth Check
   if (authLoading) return <ActivityIndicator style={{flex:1}} />;
+  
+  // 2. If no user, show Login
   if (!customer) return <LoginScreen />;
 
-  // 2. IF LOGGED IN, FETCH INDIA STORE
+  // 3. Fetch Data
   useEffect(() => {
-    async function initIndiaStore() {
+    async function fetchData() {
       try {
-        // A. Find "India" Region
+        // Get India Region
         const { regions } = await medusa.store.region.list();
         const india = regions.find(r => r.currency_code === 'inr');
         
-        if (!india) {
-          Alert.alert("Config Error", "Please create an 'India' region in Admin Panel");
-          return;
-        }
-        setRegion(india);
+        if (!india) return Alert.alert("Error", "India region not found in backend");
 
-        // B. Fetch Products FOR INDIA (This ensures INR prices)
+        // Get Products (SDK now has the Token from AuthContext automatically)
         const { products } = await medusa.store.product.list({
-          region_id: india.id, 
-          fields: "id,title,thumbnail,variants.prices,variants.id",
+          region_id: india.id,
+          fields: "id,title,thumbnail,variants.prices"
         });
         setProducts(products);
-
       } catch (e) {
         console.error(e);
       } finally {
         setLoading(false);
       }
     }
-    initIndiaStore();
+    fetchData();
   }, [customer]);
 
-  // Helper: Format Price to ₹
-  const getINRPrice = (variant: any) => {
-    const price = variant?.prices?.find((p: any) => p.currency_code === 'inr');
-    return price 
-      ? `₹${(price.amount / 100).toFixed(2)}` 
-      : "Price N/A (Check Admin)";
+  const getPrice = (variant: any) => {
+    const p = variant?.prices?.find((p: any) => p.currency_code === 'inr');
+    return p ? `₹${p.amount}` : "N/A";
   };
 
   return (
     <ThemedView style={styles.container}>
-      {/* Header */}
       <ThemedView style={styles.header}>
-        <ThemedText type="subtitle">Hello, {customer.first_name}</ThemedText>
-        <TouchableOpacity onPress={logout}>
-           <ThemedText style={{color: 'red'}}>Log Out</ThemedText>
-        </TouchableOpacity>
+        <ThemedText type="subtitle">Hi, {customer.first_name}</ThemedText>
+        <TouchableOpacity onPress={logout}><ThemedText style={{color:'red'}}>Log Out</ThemedText></TouchableOpacity>
       </ThemedView>
 
-      <ThemedText type="title" style={{padding: 16}}>🇮🇳 India Store</ThemedText>
-      
-      {loading ? <ActivityIndicator /> : (
+      <ThemedText type="title" style={{padding: 16}}>Dashboard</ThemedText>
+
+      {loading ? <ActivityIndicator/> : (
         <FlatList
           data={products}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 16 }}
-          renderItem={({ item }) => (
+          keyExtractor={i => i.id}
+          contentContainerStyle={{padding:16}}
+          renderItem={({item}) => (
             <ThemedView style={styles.card}>
-              <Image source={{ uri: item.thumbnail }} style={styles.image} />
-              <ThemedView style={{padding: 10}}>
-                <ThemedText type="defaultSemiBold">{item.title}</ThemedText>
-                <ThemedText style={{color: 'green', fontSize: 16}}>
-                  {getINRPrice(item.variants[0])}
-                </ThemedText>
-              </ThemedView>
+                <Image source={{uri: item.thumbnail}} style={styles.image} contentFit="cover"/>
+                <ThemedView style={{padding:10}}>
+                    <ThemedText type="defaultSemiBold">{item.title}</ThemedText>
+                    <ThemedText style={{color:'green'}}>{getPrice(item.variants[0])}</ThemedText>
+                </ThemedView>
             </ThemedView>
           )}
         />
